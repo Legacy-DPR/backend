@@ -8,25 +8,19 @@ datasource db {
 }
 
 model User {
-  id          String       @id @default(cuid())
-  telegramId  String       @unique
-  createdAt   DateTime     @default(now())
-  tickets     Ticket[]
-  userDetails UserDetails?
-}
-
-model UserDetails {
-  id          String @id @default(cuid())
-  user        User   @relation(fields: [userId], references: [id])
-  userId      String @unique
-  name        String
-  phoneNumber String
+  id         String   @id @default(cuid())
+  telegramId String   @unique
+  createdAt  DateTime @default(now())
+  tickets    Ticket[]
 }
 
 model Employee {
   id                     String            @id @default(cuid())
   name                   String
   createdAt              DateTime          @default(now())
+  telegramId             String            @unique
+  department             Department        @relation(fields: [departmentId], references: [id])
+  departmentId           String
   ticketOperations       TicketOperation[]
   allowedOperationGroups OperationGroup[]
 }
@@ -37,6 +31,7 @@ model Department {
   createdAt                DateTime         @default(now())
   tickets                  Ticket[]
   availableOperationGroups OperationGroup[] @relation("DepartmentOperationGroups")
+  employees                Employee[]
 }
 
 enum OperationStatus {
@@ -76,7 +71,7 @@ model Operation {
   name             String
   description      String
   tickets          TicketOperation[]
-  operationGroup   OperationGroup?   @relation(fields: [operationGroupId], references: [id])
+  operationGroup   OperationGroup?   @relation(name: "OperationGroupOperations", fields: [operationGroupId], references: [id])
   operationGroupId String?
 }
 
@@ -84,9 +79,13 @@ model OperationGroup {
   id           String       @id
   name         String
   description  String
-  operations   Operation[]
+  operations   Operation[] @relation(name: "OperationGroupOperations")
   operationIds String[]
   employees    Employee[]
   departments  Department[] @relation("DepartmentOperationGroups")
 }
 
+model ServiceClient {
+  secretToken String @id @default(cuid())
+  name        String
+}

@@ -1,12 +1,12 @@
 import { PrismaClient } from '@prisma/client';
 import express from 'express';
-
-import { findUserByTelegramId } from '@/repositories/user-repository';
+import { checkIfServiceAuthorized } from "@/middleware";
 
 const app = express();
 const prisma = new PrismaClient();
 
 app.use(express.json());
+app.use(checkIfServiceAuthorized);
 
 /**
  * 1. Эндпоинт для создания нового пользователя по telegramId
@@ -21,7 +21,9 @@ app.post('/users', async (req, res) => {
     }
 
     try {
-        const existingUser = await findUserByTelegramId(telegramId);
+        const existingUser = await prisma.user.findUnique({
+            where: { telegramId },
+        });
 
         if (existingUser) {
             return res.status(400).json({
@@ -43,80 +45,23 @@ app.post('/users', async (req, res) => {
 });
 
 /**
- * 2. Эндпоинт для создания UserDetails по telegramId
- *    POST /user-details
- *    Тело запроса: { "telegramId": "telegram_12345", "name": "Иван Иванов", "phoneNumber": "+79991234567" }
- */
-app.post('/user-details', async (req, res) => {
-    const { telegramId, name, phoneNumber } = req.body;
-
-    if (!telegramId || !name || !phoneNumber) {
-        return res
-            .status(400)
-            .json({ error: 'telegramId, name и phoneNumber обязательны' });
-    }
-
-    try {
-        const user = await findUserByTelegramId(telegramId);
-
-        if (!user) {
-            return res
-                .status(404)
-                .json({ error: 'Пользователь с таким telegramId не найден' });
-        }
-
-        if (user.userDetails) {
-            return res
-                .status(400)
-                .json({ error: 'Детали пользователя уже существуют' });
-        }
-
-        const userDetails = await prisma.userDetails.create({
-            data: {
-                userId: user.id,
-                name,
-                phoneNumber,
-            },
-        });
-
-        res.status(201).json(userDetails);
-    } catch (error) {
-        console.error('Ошибка при создании UserDetails:', error);
-        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
-    }
-});
-
-/**
- * 3. Эндпоинт для получения данных пользователя по telegramId
+ * 2. Эндпоинт для получения данных пользователя по telegramId
  *    GET /users/:telegramId
- *    Ответ: { "telegramId": "telegram_12345", "name": "Иван Иванов", "phoneNumber": "+79991234567" }
- *    Если UserDetails отсутствуют, возвращает ошибку
+ *    Ответ: { "telegramId": "telegram_12345" }
  */
 app.get('/users/:telegramId', async (req, res) => {
     const { telegramId } = req.params;
 
     try {
-        const user = await findUserByTelegramId(telegramId);
+        const user = await prisma.user.findUnique({
+            where: { telegramId },
+        });
 
         if (!user) {
-            return res
-                .status(404)
-                .json({ error: 'Пользователь с таким telegramId не найден' });
+            return res.status(404).json({ error: 'Пользователь с таким telegramId не найден' });
         }
 
-        if (!user.userDetails) {
-            return res.status(400).json({
-                error: 'Данные пользователя не заполнены. Пожалуйста, заполните их.',
-            });
-        }
-
-        const { name, phoneNumber } = user.userDetails;
-
-        res.json({
-            telegramId: user.telegramId,
-            name,
-            phoneNumber,
-        });
+        res.json(user);
     } catch (error) {
         console.error('Ошибка при получении данных пользователя:', error);
         res.status(500).json({ error: 'Внутренняя ошибка сервера' });
@@ -129,7 +74,7 @@ app.listen(PORT, () => {
 });
 
 /**
- * 4. Эндпоинт для получения списка всех отделений
+ * 3. Эндпоинт для получения списка всех отделений
  * GET /departments
  * Ответ: Массив объектов отделений
  */
@@ -149,7 +94,7 @@ app.get('/departments', async (req, res) => {
 });
 
 /**
- * 5. Эндпоинт для получения всех групп операций, выполняемых данным отделением
+ * 4. Эндпоинт для получения всех групп операций, выполняемых данным отделением
  *    GET /departments/:departmentId/operation-groups
  *    Ответ: Массив групп операций с их операциями
  */
@@ -169,14 +114,19 @@ app.get('/departments/:departmentId/operation-groups', async (req, res) => {
     });
 
     if (!department) {
-      return res.status(404).json({ error: 'Department not found' });
+      return res.status(404).json({ error: 'Отдел не найден' });
     }
 
     const operationGroups = department.availableOperationGroups.map(group => ({
       id: group.id,
       name: group.name,
       description: group.description,
-      operations: group.operations,
+      operations: group.operations.map(operation => ({
+        id: operation.id,
+        name: operation.name,
+        description: operation.description,
+        operationGroupId: operation.operationGroupId,
+      })),
     }));
 
     res.json(operationGroups);
@@ -186,3 +136,33 @@ app.get('/departments/:departmentId/operation-groups', async (req, res) => {
   }
 });
 
+
+/**
+ * 5. Эндпоинт для получения данных о работнике по telegramId
+ *    GET /employees/:telegramId
+ *    Ответ: { "telegramId": "telegram_12345", "name": "Иван Иванов" }
+ */
+app.get('/employees/:telegramId', async (req, res) => {
+  const { telegramId } = req.params;
+
+  try {
+    const employee = await prisma.employee.findUnique({
+      where: { telegramId },
+      include: {
+        allowedOperationGroups: true,
+      },
+    });
+
+    if (!employee) {
+      return res.status(404).json({ error: 'Работник с таким telegramId не найден' });
+    }
+
+    res.json({
+      telegramId: employee.telegramId,
+      name: employee.name,
+    });
+  } catch (error) {
+    console.error('Ошибка при получении данных работника:', error);
+    res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+  }
+});
