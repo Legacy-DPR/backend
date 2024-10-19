@@ -277,6 +277,75 @@ app.post('/tickets', async (req, res) => {
 });
 
 /**
+ * Новый Эндпоинт для создания нового работника
+ * POST /employees
+ * Тело запроса:
+ * {
+ *   "telegramId": "emp_1006",
+ *   "name": "Мария Иванова",
+ *   "onDuty": true,
+ *   "admin": false,
+ *   "departmentId": "dep1",
+ *   "allowedOperationGroups": ["group1", "group3"]
+ * }
+ */
+app.post('/employees', async (req, res) => {
+    const { telegramId, name, onDuty, admin, departmentId, allowedOperationGroups } = req.body;
+
+    if (!telegramId || !name || !departmentId || !Array.isArray(allowedOperationGroups)) {
+        return res.status(400).json({ error: 'telegramId, name, departmentId и allowedOperationGroups обязательны' });
+    }
+
+    try {
+        const department = await prisma.department.findUnique({
+            where: { id: departmentId },
+        });
+
+        if (!department) {
+            return res.status(404).json({ error: 'Отделение с таким departmentId не найдено' });
+        }
+
+        const operationGroups = await prisma.operationGroup.findMany({
+            where: {
+                id: { in: allowedOperationGroups },
+            },
+        });
+
+        if (operationGroups.length !== allowedOperationGroups.length) {
+            return res.status(400).json({ error: 'Некоторые из allowedOperationGroups не существуют' });
+        }
+
+        const existingEmployee = await prisma.employee.findUnique({
+            where: { telegramId },
+        });
+
+        if (existingEmployee) {
+            return res.status(400).json({ error: 'Работник с таким telegramId уже существует' });
+        }
+
+        const employee = await prisma.employee.create({
+            data: {
+                telegramId,
+                name,
+                onDuty: onDuty ?? false,
+                admin: admin ?? false,
+                department: {
+                    connect: { id: departmentId },
+                },
+                allowedOperationGroups: {
+                    connect: allowedOperationGroups.map((id: string) => ({ id })),
+                },
+            },
+        });
+
+        res.status(201).json(employee);
+    } catch (error) {
+        console.error('Ошибка при создании работника:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
+/**
  * Новый Эндпоинт для получения списка текущих активных талонов для каждого сотрудника в отделении
  * GET /queue/active-tickets/:departmentId
  * Ответ: { "employeeId1": ["ticketId1", "ticketId2"], "employeeId2": ["ticketId3"], ... }
