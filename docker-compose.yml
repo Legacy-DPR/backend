@@ -18,7 +18,7 @@ services:
       COMMON_RATE_LIMIT_MAX_REQUESTS: "20"
       DATABASE_URL: "postgresql://backend:backend_password@db:5432/postdonbass_db"
     command: >
-      sh -c "npx prisma db push --accept-data-loss; npx prisma seed; npm run start"
+      sh -c "npx prisma db push --accept-data-loss; npx prisma db seed; npm run start"
   db:
     image: postgres:17
     container_name: database
