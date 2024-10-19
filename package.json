@@ -12,9 +12,10 @@
         "build": "tsup",
         "start": "node dist/index.js",
         "clean": "rimraf dist coverage",
-        "lint": "biome check src/",
-        "lint:fix": "biome check src/ --fix",
-        "format": "biome format src/",
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "format": "npx prettier . --write",
+
         "test": "vitest run",
         "prepare": "husky"
     },

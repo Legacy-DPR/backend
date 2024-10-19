@@ -11,4 +11,67 @@ model User {
   id         String   @id @default(cuid())
   telegramId String
   createdAt  DateTime @default(now())
+  tickets    Ticket[]
+}
+
+model Employee {
+  id                     String            @id @default(cuid())
+  name                   String
+  createdId              DateTime          @default(now())
+  ticketOperations       TicketOperation[]
+  allowedOperationGroups OperationGroup[]
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  address   String
+  createdAt DateTime @default(now())
+}
+
+enum OperationStatus {
+  CALL
+  COMPLETE
+  CANCEL
+}
+
+model Ticket {
+  id              String           @id @default(cuid())
+  appointedTime   DateTime?
+  user            User?            @relation(fields: [userId], references: [id])
+  userId          String
+  qrCode          String
+  ticketOperation TicketOperation? @relation("TicketOperationForTicket")
+  createdAt       DateTime         @default(now())
+}
+
+model TicketOperation {
+  id              String          @id @default(cuid())
+  ticket          Ticket          @relation("TicketOperationForTicket", fields: [ticketId], references: [id])
+  ticketId        String          @unique
+  employee        Employee        @relation(fields: [employeeId], references: [id])
+  employeeId      String
+  operationStatus OperationStatus
+  operation       Operation       @relation(fields: [operationId], references: [id])
+  notes           String
+  operationId     String
+
+  @@unique([ticketId, employeeId])
+}
+
+model Operation {
+  id               String            @id
+  name             String
+  description      String
+  tickets          TicketOperation[]
+  operationGroup   OperationGroup?   @relation(fields: [operationGroupId], references: [id])
+  operationGroupId String?
+}
+
+model OperationGroup {
+  id           String      @id
+  name         String
+  description  String
+  operations   Operation[]
+  operationIds String[]
+  employees    Employee[]
 }
