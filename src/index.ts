@@ -168,3 +168,113 @@ app.get('/employees/:telegramId', async (req, res) => {
     res.status(500).json({ error: 'Внутренняя ошибка сервера' });
   }
 });
+
+/**
+ * ЭНДПОИНТ СОЗДАНИЯ БИЛЕТА!!!!
+ * POST /tickets
+ * Тело запроса:
+ * {
+ *   "telegramId": "telegram_12345", о
+ *   "appointedTime": "2024-05-01T10:00:00Z", 
+ *   "operationId": "op1"
+ * }
+ */
+app.post('/tickets', async (req, res) => {
+    const { telegramId, appointedTime, operationId } = req.body;
+
+    if (!operationId) {
+        return res.status(400).json({ error: 'operationId обязателен' });
+    }
+
+    try {
+        const operation = await prisma.operation.findUnique({
+            where: { id: operationId },
+        });
+
+        if (!operation) {
+            return res.status(404).json({ error: 'operationId не существует' });
+        }
+
+        let userId = null;
+
+        if (telegramId) {
+            const user = await prisma.user.findUnique({
+                where: { telegramId },
+            });
+
+            if (!user) {
+                return res.status(404).json({ error: 'Пользователь с таким telegramId не найден' });
+            }
+
+            userId = user.id;
+        }
+
+        // ЗАГЛУШКА
+        const qrCode = `QR-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
+        let departmentId = null;
+        if (operation.operationGroupId) {
+            const operationGroup = await prisma.operationGroup.findUnique({
+                where: { id: operation.operationGroupId },
+                include: { departments: true },
+            });
+
+            if (operationGroup && operationGroup.departments.length > 0) {
+                departmentId = operationGroup.departments[0].id;
+            } else {
+                return res.status(400).json({ error: 'Не удалось определить отдел для данной операции' });
+            }
+        } else {
+            // Если операция не связана с группой, выбираем отделение по умолчанию
+            const defaultDepartment = await prisma.department.findFirst();
+            if (defaultDepartment) {
+                departmentId = defaultDepartment.id;
+            } else {
+                return res.status(400).json({ error: 'Нет доступных отделений для создания билета' });
+            }
+        }
+
+        const ticket = await prisma.ticket.create({
+            data: {
+                appointedTime: appointedTime ? new Date(appointedTime) : null,
+                department: {
+                    connect: { id: departmentId },
+                },
+                user: userId ? { connect: { id: userId } } : undefined,
+                qrCode, // Используем сгенерированную строку
+                operation: {
+                    connect: { id: operationId },
+                },
+            },
+        });
+
+        const employee = await prisma.employee.findFirst({
+            where: {
+                departmentId: departmentId,
+                onDuty: true,
+            },
+        });
+
+        if (employee) {
+            await prisma.ticketOperation.create({
+                data: {
+                    ticket: {
+                        connect: { id: ticket.id },
+                    },
+                    employee: {
+                        connect: { id: employee.id },
+                    },
+                    operationStatus: 'CALL', 
+                    notes: '', 
+                },
+            });
+        } else {
+            console.warn(`Нет доступных сотрудников для отдела ${departmentId}`);
+        }
+
+        res.status(201).json(ticket);
+    } catch (error) {
+        console.error('Ошибка при создании билета:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
