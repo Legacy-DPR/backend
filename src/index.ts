@@ -127,3 +127,62 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Сервер запущен на порту ${PORT}`);
 });
+
+/**
+ * 4. Эндпоинт для получения списка всех отделений
+ * GET /departments
+ * Ответ: Массив объектов отделений
+ */
+app.get('/departments', async (req, res) => {
+  try {
+    const departments = await prisma.department.findMany({
+      include: {
+        availableOperationGroups: true, 
+        tickets: true,                  
+      },
+    });
+    res.json(departments);
+  } catch (error) {
+    console.error('Ошибка при получении списка отделений:', error);
+    res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+  }
+});
+
+/**
+ * 5. Эндпоинт для получения всех групп операций, выполняемых данным отделением
+ *    GET /departments/:departmentId/operation-groups
+ *    Ответ: Массив групп операций с их операциями
+ */
+app.get('/departments/:departmentId/operation-groups', async (req, res) => {
+  const { departmentId } = req.params;
+
+  try {
+    const department = await prisma.department.findUnique({
+      where: { id: departmentId },
+      include: {
+        availableOperationGroups: {
+          include: {
+            operations: true,
+          },
+        },
+      },
+    });
+
+    if (!department) {
+      return res.status(404).json({ error: 'Department not found' });
+    }
+
+    const operationGroups = department.availableOperationGroups.map(group => ({
+      id: group.id,
+      name: group.name,
+      description: group.description,
+      operations: group.operations,
+    }));
+
+    res.json(operationGroups);
+  } catch (error) {
+    console.error('Ошибка при получении групп операций:', error);
+    res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+  }
+});
+

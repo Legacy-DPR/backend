@@ -36,7 +36,7 @@ model Department {
   address                  String
   createdAt                DateTime         @default(now())
   tickets                  Ticket[]
-  availableOperationGroups OperationGroup[]
+  availableOperationGroups OperationGroup[] @relation("DepartmentOperationGroups")
 }
 
 enum OperationStatus {
@@ -87,5 +87,6 @@ model OperationGroup {
   operations   Operation[]
   operationIds String[]
   employees    Employee[]
-  departments  Department[]
+  departments  Department[] @relation("DepartmentOperationGroups")
 }
+

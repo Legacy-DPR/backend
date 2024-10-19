@@ -12,7 +12,10 @@ RUN npm ci
 # Bundle app source
 COPY . .
 
-# Build the TypeScript files
+RUN apt-get update -y && apt-get install -y openssl
+
+RUN npx prisma generate
+
 RUN npm run build
 
 # Expose port 8080
