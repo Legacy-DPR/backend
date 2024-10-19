@@ -32,10 +32,11 @@ model Employee {
 }
 
 model Department {
-  id        String   @id @default(cuid())
-  address   String
-  createdAt DateTime @default(now())
-  tickets   Ticket[]
+  id                       String           @id @default(cuid())
+  address                  String
+  createdAt                DateTime         @default(now())
+  tickets                  Ticket[]
+  availableOperationGroups OperationGroup[]
 }
 
 enum OperationStatus {
@@ -80,10 +81,11 @@ model Operation {
 }
 
 model OperationGroup {
-  id           String      @id
+  id           String       @id
   name         String
   description  String
   operations   Operation[]
   operationIds String[]
   employees    Employee[]
+  departments  Department[]
 }

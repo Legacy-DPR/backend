@@ -1,19 +1,129 @@
-import { env } from '@/common/utils/envConfig';
-import { app, logger } from '@/server';
+import { PrismaClient } from '@prisma/client';
+import express from 'express';
 
-const server = app.listen(env.PORT, () => {
-    const { NODE_ENV, HOST, PORT } = env;
-    logger.info(`Server (${NODE_ENV}) running on port http://${HOST}:${PORT}`);
+import { findUserByTelegramId } from '@/repositories/user-repository';
+
+const app = express();
+const prisma = new PrismaClient();
+
+app.use(express.json());
+
+/**
+ * 1. Эндпоинт для создания нового пользователя по telegramId
+ *    POST /users
+ *    Тело запроса: { "telegramId": "telegram_12345" }
+ */
+app.post('/users', async (req, res) => {
+    const { telegramId } = req.body;
+
+    if (!telegramId) {
+        return res.status(400).json({ error: 'telegramId обязателен' });
+    }
+
+    try {
+        const existingUser = await findUserByTelegramId(telegramId);
+
+        if (existingUser) {
+            return res.status(400).json({
+                error: 'Пользователь с таким telegramId уже существует',
+            });
+        }
+
+        const user = await prisma.user.create({
+            data: {
+                telegramId,
+            },
+        });
+
+        res.status(201).json(user);
+    } catch (error) {
+        console.error('Ошибка при создании пользователя:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
 });
 
-const onCloseSignal = () => {
-    logger.info('sigint received, shutting down');
-    server.close(() => {
-        logger.info('server closed');
-        process.exit();
-    });
-    setTimeout(() => process.exit(1), 10000).unref(); // Force shutdown after 10s
-};
+/**
+ * 2. Эндпоинт для создания UserDetails по telegramId
+ *    POST /user-details
+ *    Тело запроса: { "telegramId": "telegram_12345", "name": "Иван Иванов", "phoneNumber": "+79991234567" }
+ */
+app.post('/user-details', async (req, res) => {
+    const { telegramId, name, phoneNumber } = req.body;
 
-process.on('SIGINT', onCloseSignal);
-process.on('SIGTERM', onCloseSignal);
+    if (!telegramId || !name || !phoneNumber) {
+        return res
+            .status(400)
+            .json({ error: 'telegramId, name и phoneNumber обязательны' });
+    }
+
+    try {
+        const user = await findUserByTelegramId(telegramId);
+
+        if (!user) {
+            return res
+                .status(404)
+                .json({ error: 'Пользователь с таким telegramId не найден' });
+        }
+
+        if (user.userDetails) {
+            return res
+                .status(400)
+                .json({ error: 'Детали пользователя уже существуют' });
+        }
+
+        const userDetails = await prisma.userDetails.create({
+            data: {
+                userId: user.id,
+                name,
+                phoneNumber,
+            },
+        });
+
+        res.status(201).json(userDetails);
+    } catch (error) {
+        console.error('Ошибка при создании UserDetails:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
+/**
+ * 3. Эндпоинт для получения данных пользователя по telegramId
+ *    GET /users/:telegramId
+ *    Ответ: { "telegramId": "telegram_12345", "name": "Иван Иванов", "phoneNumber": "+79991234567" }
+ *    Если UserDetails отсутствуют, возвращает ошибку
+ */
+app.get('/users/:telegramId', async (req, res) => {
+    const { telegramId } = req.params;
+
+    try {
+        const user = await findUserByTelegramId(telegramId);
+
+        if (!user) {
+            return res
+                .status(404)
+                .json({ error: 'Пользователь с таким telegramId не найден' });
+        }
+
+        if (!user.userDetails) {
+            return res.status(400).json({
+                error: 'Данные пользователя не заполнены. Пожалуйста, заполните их.',
+            });
+        }
+
+        const { name, phoneNumber } = user.userDetails;
+
+        res.json({
+            telegramId: user.telegramId,
+            name,
+            phoneNumber,
+        });
+    } catch (error) {
+        console.error('Ошибка при получении данных пользователя:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Сервер запущен на порту ${PORT}`);
+});
