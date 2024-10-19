@@ -23,6 +23,8 @@ model Employee {
   departmentId           String
   ticketOperations       TicketOperation[]
   allowedOperationGroups OperationGroup[]
+  onDuty                 Boolean           @default(false)
+  admin                  Boolean           @default(false)
 }
 
 model Department {
@@ -46,10 +48,12 @@ model Ticket {
   department      Department       @relation(fields: [departmentId], references: [id])
   departmentId    String
   user            User?            @relation(fields: [userId], references: [id])
-  userId          String
+  userId          String?
   qrCode          String
   ticketOperation TicketOperation? @relation("TicketOperationForTicket")
   createdAt       DateTime         @default(now())
+  operation       Operation        @relation(fields: [operationId], references: [id])
+  operationId     String
 }
 
 model TicketOperation {
@@ -59,19 +63,17 @@ model TicketOperation {
   employee        Employee        @relation(fields: [employeeId], references: [id])
   employeeId      String
   operationStatus OperationStatus
-  operation       Operation       @relation(fields: [operationId], references: [id])
   notes           String
-  operationId     String
 
   @@unique([ticketId, employeeId])
 }
 
 model Operation {
-  id               String            @id
+  id               String          @id
   name             String
   description      String
-  tickets          TicketOperation[]
-  operationGroup   OperationGroup?   @relation(name: "OperationGroupOperations", fields: [operationGroupId], references: [id])
+  tickets          Ticket[]
+  operationGroup   OperationGroup? @relation(name: "OperationGroupOperations", fields: [operationGroupId], references: [id])
   operationGroupId String?
 }
 
@@ -79,7 +81,7 @@ model OperationGroup {
   id           String       @id
   name         String
   description  String
-  operations   Operation[] @relation(name: "OperationGroupOperations")
+  operations   Operation[]  @relation(name: "OperationGroupOperations")
   operationIds String[]
   employees    Employee[]
   departments  Department[] @relation("DepartmentOperationGroups")

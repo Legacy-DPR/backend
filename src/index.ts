@@ -160,6 +160,8 @@ app.get('/employees/:telegramId', async (req, res) => {
     res.json({
       telegramId: employee.telegramId,
       name: employee.name,
+      onDuty: employee.onDuty, // Добавлено поле onDuty
+      admin: employee.admin,     // Добавлено поле admin
     });
   } catch (error) {
     console.error('Ошибка при получении данных работника:', error);
