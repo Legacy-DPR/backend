@@ -1,6 +1,8 @@
+// index.ts
 import { PrismaClient } from '@prisma/client';
 import express from 'express';
 import { checkIfServiceAuthorized } from "@/middleware";
+import { getActiveTickets } from './queueService'; // Импортируем функцию из queueService
 
 const app = express();
 const prisma = new PrismaClient();
@@ -66,11 +68,6 @@ app.get('/users/:telegramId', async (req, res) => {
         console.error('Ошибка при получении данных пользователя:', error);
         res.status(500).json({ error: 'Внутренняя ошибка сервера' });
     }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Сервер запущен на порту ${PORT}`);
 });
 
 /**
@@ -174,7 +171,7 @@ app.get('/employees/:telegramId', async (req, res) => {
  * POST /tickets
  * Тело запроса:
  * {
- *   "telegramId": "telegram_12345", о
+ *   "telegramId": "telegram_12345",
  *   "appointedTime": "2024-05-01T10:00:00Z", 
  *   "operationId": "op1"
  * }
@@ -277,4 +274,26 @@ app.post('/tickets', async (req, res) => {
         console.error('Ошибка при создании билета:', error);
         res.status(500).json({ error: 'Внутренняя ошибка сервера' });
     }
+});
+
+/**
+ * Новый Эндпоинт для получения списка текущих активных талонов для каждого сотрудника в отделении
+ * GET /queue/active-tickets/:departmentId
+ * Ответ: { "employeeId1": ["ticketId1", "ticketId2"], "employeeId2": ["ticketId3"], ... }
+ */
+app.get('/queue/active-tickets/:departmentId', async (req, res) => {
+    const { departmentId } = req.params;
+
+    try {
+        const activeTickets = await getActiveTickets(departmentId);
+        res.json(activeTickets);
+    } catch (error) {
+        console.error('Ошибка при получении активных билетов:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Сервер запущен на порту ${PORT}`);
 });

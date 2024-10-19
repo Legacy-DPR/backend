@@ -3,7 +3,7 @@ import { PrismaClient, OperationStatus } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-async function seedOperations() {
+async function seed() {
     try {
         await prisma.$transaction(async (tx) => {
             // 1. Сиды для ServiceClient
@@ -57,6 +57,12 @@ async function seedOperations() {
                     { id: 'op12', name: 'Купить стартовые пакеты', description: 'Покупка стартовых пакетов мобильных операторов', operationGroupId: 'group4' },
                     { id: 'op13', name: 'Восстановить стартовые пакеты', description: 'Восстановление стартовых пакетов', operationGroupId: 'group4' },
                     { id: 'op14', name: 'Скретч-карты', description: 'Покупка скретч-карт', operationGroupId: 'group4' },
+                    { id: 'op15', name: 'Купить бытовую технику', description: 'Покупка бытовой техники', operationGroupId: 'group5' },
+                    { id: 'op16', name: 'Купить продукты питания', description: 'Покупка продуктов питания', operationGroupId: 'group5' },
+                    { id: 'op17', name: 'Подписка на журнал', description: 'Оформление подписки на журнал', operationGroupId: 'group6' },
+                    { id: 'op18', name: 'Написать обращение', description: 'Подача заявления или обращения', operationGroupId: 'group7' },
+                    { id: 'op19', name: 'Получить пенсию', description: 'Получение пенсии', operationGroupId: 'group8' },
+                    { id: 'op20', name: 'Выплата пособия', description: 'Получение пособия', operationGroupId: 'group8' },
                 ],
                 skipDuplicates: true,
             });
@@ -99,6 +105,8 @@ async function seedOperations() {
                 { telegramId: 'telegram_12345' },
                 { telegramId: 'telegram_67890' },
                 { telegramId: 'telegram_11223' },
+                { telegramId: 'telegram_44556' },
+                { telegramId: 'telegram_77889' },
             ];
 
             for (const userData of users) {
@@ -114,9 +122,11 @@ async function seedOperations() {
 
             // 6. Сиды для Employee
             const employees = [
-                { telegramId: '993563525', name: 'Антон Чуприн', onDuty: true, admin: false },
-                { telegramId: '1639063236', name: 'Антон Пересекин', onDuty: false, admin: true },
-                { telegramId: 'emp_11223', name: 'Иван Иванов', onDuty: false, admin: false },
+                { telegramId: 'emp_1001', name: 'Анна Смирнова', onDuty: true, admin: false, allowedGroups: ['group1', 'group2'] },
+                { telegramId: 'emp_1002', name: 'Борис Иванов', onDuty: true, admin: false, allowedGroups: ['group3', 'group4'] },
+                { telegramId: 'emp_1003', name: 'Виктория Кузнецова', onDuty: true, admin: false, allowedGroups: ['group5'] },
+                { telegramId: 'emp_1004', name: 'Григорий Петров', onDuty: true, admin: false, allowedGroups: ['group6', 'group7'] },
+                { telegramId: 'emp_1005', name: 'Дмитрий Соколов', onDuty: true, admin: false, allowedGroups: ['group8'] },
             ];
 
             for (const employeeData of employees) {
@@ -129,6 +139,9 @@ async function seedOperations() {
                         },
                         onDuty: employeeData.onDuty,
                         admin: employeeData.admin,
+                        allowedOperationGroups: {
+                            set: employeeData.allowedGroups.map(groupId => ({ id: groupId })),
+                        },
                     },
                     create: {
                         telegramId: employeeData.telegramId,
@@ -138,6 +151,9 @@ async function seedOperations() {
                         },
                         onDuty: employeeData.onDuty,
                         admin: employeeData.admin,
+                        allowedOperationGroups: {
+                            connect: employeeData.allowedGroups.map(groupId => ({ id: groupId })),
+                        },
                     },
                 });
                 console.log(`Upserted Employee: ${employee.name}, onDuty: ${employee.onDuty}, admin: ${employee.admin}`);
@@ -157,42 +173,140 @@ async function seedOperations() {
                     departmentId: departmentId,
                     userId: allUsers[0].id,
                     qrCode: 'QR-TICKET001',
-                    operationId: allOperations[0].id,
+                    operationId: 'op1',
                 },
                 {
-                    appointedTime: new Date('2024-05-02T11:30:00Z'),
+                    appointedTime: new Date('2024-05-01T10:05:00Z'),
                     departmentId: departmentId,
                     userId: allUsers[1].id,
                     qrCode: 'QR-TICKET002',
-                    operationId: allOperations[1].id,
+                    operationId: 'op3',
                 },
                 {
                     appointedTime: null,
                     departmentId: departmentId,
                     userId: allUsers[2].id,
                     qrCode: 'QR-TICKET003',
-                    operationId: allOperations[2].id,
+                    operationId: 'op5',
                 },
                 {
-                    appointedTime: new Date('2024-05-03T09:00:00Z'),
+                    appointedTime: new Date('2024-05-01T09:00:00Z'),
                     departmentId: departmentId,
                     userId: allUsers[0].id,
                     qrCode: 'QR-TICKET004',
-                    operationId: allOperations[3].id,
+                    operationId: 'op2',
                 },
                 {
-                    appointedTime: new Date('2024-05-04T14:00:00Z'),
+                    appointedTime: new Date('2024-05-01T14:00:00Z'),
                     departmentId: departmentId,
                     userId: allUsers[1].id,
                     qrCode: 'QR-TICKET005',
-                    operationId: allOperations[4].id,
+                    operationId: 'op6',
                 },
                 {
                     appointedTime: null,
                     departmentId: departmentId,
-                    userId: allUsers[0].id,
+                    userId: allUsers[3].id,
                     qrCode: 'QR-TICKET006',
-                    operationId: allOperations[5].id,
+                    operationId: 'op7',
+                },
+                {
+                    appointedTime: new Date('2024-05-01T11:30:00Z'),
+                    departmentId: departmentId,
+                    userId: allUsers[4].id,
+                    qrCode: 'QR-TICKET007',
+                    operationId: 'op8',
+                },
+                {
+                    appointedTime: new Date('2024-05-01T12:00:00Z'),
+                    departmentId: departmentId,
+                    userId: allUsers[0].id,
+                    qrCode: 'QR-TICKET008',
+                    operationId: 'op9',
+                },
+                {
+                    appointedTime: null,
+                    departmentId: departmentId,
+                    userId: allUsers[2].id,
+                    qrCode: 'QR-TICKET009',
+                    operationId: 'op10',
+                },
+                {
+                    appointedTime: new Date('2024-05-01T13:00:00Z'),
+                    departmentId: departmentId,
+                    userId: allUsers[1].id,
+                    qrCode: 'QR-TICKET010',
+                    operationId: 'op11',
+                },
+                {
+                    appointedTime: new Date('2024-05-01T15:00:00Z'),
+                    departmentId: departmentId,
+                    userId: allUsers[3].id,
+                    qrCode: 'QR-TICKET011',
+                    operationId: 'op12',
+                },
+                {
+                    appointedTime: null,
+                    departmentId: departmentId,
+                    userId: allUsers[4].id,
+                    qrCode: 'QR-TICKET012',
+                    operationId: 'op13',
+                },
+                {
+                    appointedTime: new Date('2024-05-01T16:00:00Z'),
+                    departmentId: departmentId,
+                    userId: allUsers[0].id,
+                    qrCode: 'QR-TICKET013',
+                    operationId: 'op14',
+                },
+                {
+                    appointedTime: null,
+                    departmentId: departmentId,
+                    userId: allUsers[1].id,
+                    qrCode: 'QR-TICKET014',
+                    operationId: 'op15',
+                },
+                {
+                    appointedTime: new Date('2024-05-01T17:00:00Z'),
+                    departmentId: departmentId,
+                    userId: allUsers[2].id,
+                    qrCode: 'QR-TICKET015',
+                    operationId: 'op16',
+                },
+                {
+                    appointedTime: new Date('2024-05-01T18:00:00Z'),
+                    departmentId: departmentId,
+                    userId: allUsers[3].id,
+                    qrCode: 'QR-TICKET016',
+                    operationId: 'op17',
+                },
+                {
+                    appointedTime: null,
+                    departmentId: departmentId,
+                    userId: allUsers[4].id,
+                    qrCode: 'QR-TICKET017',
+                    operationId: 'op18',
+                },
+                {
+                    appointedTime: new Date('2024-05-01T19:00:00Z'),
+                    departmentId: departmentId,
+                    userId: allUsers[0].id,
+                    qrCode: 'QR-TICKET018',
+                    operationId: 'op19',
+                },
+                {
+                    appointedTime: null,
+                    departmentId: departmentId,
+                    userId: allUsers[1].id,
+                    qrCode: 'QR-TICKET019',
+                    operationId: 'op20',
+                },
+                {
+                    appointedTime: new Date('2024-05-01T20:00:00Z'),
+                    departmentId: departmentId,
+                    userId: allUsers[2].id,
+                    qrCode: 'QR-TICKET020',
+                    operationId: 'op1',
                 },
             ];
 
@@ -216,33 +330,41 @@ async function seedOperations() {
                 });
                 console.log(`Upserted Ticket: ${ticket.qrCode}`);
 
-                if (ticket.qrCode === 'QR-TICKET001' || ticket.qrCode === 'QR-TICKET002') {
-                    const employee = await tx.employee.findFirst({
-                        where: {
-                            departmentId: departmentId,
-                            onDuty: true,
+                // Назначение билетов сотрудникам
+                const employee = await tx.employee.findFirst({
+                    where: {
+                        departmentId: departmentId,
+                        onDuty: true,
+                        allowedOperationGroups: {
+                            some: {
+                                operations: {
+                                    some: {
+                                        id: ticketData.operationId,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                });
+
+                if (employee) {
+                    await tx.ticketOperation.upsert({
+                        where: { ticketId: ticket.id },
+                        update: {},
+                        create: {
+                            ticket: {
+                                connect: { id: ticket.id },
+                            },
+                            employee: {
+                                connect: { id: employee.id },
+                            },
+                            operationStatus: OperationStatus.CALL,
+                            notes: '',
                         },
                     });
-
-                    if (employee) {
-                        const ticketOperation = await tx.ticketOperation.upsert({
-                            where: { ticketId: ticket.id },
-                            update: {},
-                            create: {
-                                ticket: {
-                                    connect: { id: ticket.id },
-                                },
-                                employee: {
-                                    connect: { id: employee.id },
-                                },
-                                operationStatus: OperationStatus.CALL,
-                                notes: '',
-                            },
-                        });
-                        console.log(`Upserted TicketOperation for Ticket: ${ticket.qrCode}`);
-                    } else {
-                        console.warn(`Нет доступных сотрудников для отдела ${departmentId}`);
-                    }
+                    console.log(`Assigned TicketOperation for Ticket: ${ticket.qrCode} to Employee: ${employee.name}`);
+                } else {
+                    console.warn(`Нет доступных сотрудников для билета ${ticket.qrCode}`);
                 }
             }
         });
@@ -256,4 +378,4 @@ async function seedOperations() {
     }
 }
 
-seedOperations();
+seed();
