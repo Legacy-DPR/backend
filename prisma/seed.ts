@@ -97,7 +97,7 @@ async function seed() {
                 const departmentResult = await tx.department.create({
                     data: {
                         id: 'dep1',
-                        address: '123 Main St',
+                        address: 'Донецк, ул. Артема 72',
                         availableOperationGroups: {
                             connect: [
                                 { id: 'group1' },
@@ -139,7 +139,7 @@ async function seed() {
                 { telegramId: 'telegram_11223' },
                 { telegramId: 'telegram_44556' },
                 { telegramId: 'telegram_77889' },
-                { telegramId: 'Guest' }, // Добавляем "Guest"
+                { telegramId: 'Guest' }, 
             ];
 
             for (const userData of users) {
