@@ -406,6 +406,28 @@ app.get('/queue/active-tickets/:departmentId', async (req, res) => {
     }
 });
 
+// Эндпоинт для получения списка операций по operationGroupId
+app.get('/operation-group/:operationGroupId/operations', async (req, res) => {
+  const { operationGroupId } = req.params;
+
+  try {
+    const operations = await prisma.operation.findMany({
+      where: {
+        operationGroupId: operationGroupId,
+      },
+    });
+
+    if (!operations || operations.length === 0) {
+      return res.status(404).json({ message: 'Operations not found for the provided operation group ID' });
+    }
+
+    res.json(operations);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'An error occurred while fetching operations.' });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Сервер запущен на порту ${PORT}`);
