@@ -2,7 +2,7 @@
 import { PrismaClient, OperationStatus } from '@prisma/client';
 import express, { Request, Response } from 'express';
 import { checkIfServiceAuthorized } from "@/middleware";
-import { getActiveTickets, getQueueForMonitor } from './queueService'; // Импортируем обе функции
+import { getQueueForMonitor } from './queueService'; // Импортируем обе функции
 import path from 'path';
 import QRCode from 'qrcode';
 import { v4 as uuidv4 } from 'uuid';
