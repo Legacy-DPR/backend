@@ -162,6 +162,8 @@ async function seed() {
                 { telegramId: 'emp_1005', name: 'Дмитрий Соколов', onDuty: true, admin: false, allowedGroups: ['group_other'] },
             ];
 
+            const employeeIds: string[] = [];
+
             for (const employeeData of employees) {
                 const employee = await tx.employee.upsert({
                     where: { telegramId: employeeData.telegramId },
@@ -189,6 +191,7 @@ async function seed() {
                         },
                     },
                 });
+                employeeIds.push(employee.id);
                 console.log(`Upserted Employee: ${employee.name}, onDuty: ${employee.onDuty}, admin: ${employee.admin}`);
             }
 
@@ -203,7 +206,10 @@ async function seed() {
             // Функция для генерации назначенного времени с 15-минутным интервалом в диапазоне 09:00-16:00
             function generateAppointedTime(startHour: number, startMinute: number, intervalMinutes: number, index: number): Date {
                 const date = new Date('2024-05-01T00:00:00Z'); // Базовая дата
-                date.setUTCHours(startHour, startMinute + intervalMinutes * index, 0, 0);
+                const totalMinutes = startMinute + intervalMinutes * index;
+                const hours = Math.floor(totalMinutes / 60) + startHour;
+                const minutes = totalMinutes % 60;
+                date.setUTCHours(hours, minutes, 0, 0);
                 return date;
             }
 
@@ -259,7 +265,11 @@ async function seed() {
                     continue;
                 }
 
-                const employee = await tx.employee.findFirst({
+                // Логика распределения билетов:
+                // 1. Найти всех сотрудников, которые могут обработать эту операцию и находятся на дежурстве.
+                // 2. Распределить билеты равномерно между ними.
+
+                const suitableEmployees = await tx.employee.findMany({
                     where: {
                         departmentId: departmentId,
                         onDuty: true,
@@ -271,25 +281,90 @@ async function seed() {
                     },
                 });
 
-                if (employee) {
-                    await tx.ticketOperation.upsert({
-                        where: { ticketId: ticket.id },
-                        update: {},
-                        create: {
-                            ticket: {
-                                connect: { id: ticket.id },
+                if (suitableEmployees.length === 0) {
+                    console.warn(`Нет доступных сотрудников для билета ${ticket.qrCode}`);
+                    continue;
+                }
+
+                // Выбор сотрудника с наименьшим количеством назначенных билетов
+                let selectedEmployee = suitableEmployees[0];
+                let minTickets = await tx.ticketOperation.count({
+                    where: {
+                        employeeId: selectedEmployee.id,
+                        operationStatus: {
+                            in: [OperationStatus.CALL, OperationStatus.COMPLETE],
+                        },
+                    },
+                });
+
+                for (const employee of suitableEmployees) {
+                    const ticketCount = await tx.ticketOperation.count({
+                        where: {
+                            employeeId: employee.id,
+                            operationStatus: {
+                                in: [OperationStatus.CALL, OperationStatus.COMPLETE],
                             },
-                            employee: {
-                                connect: { id: employee.id },
-                            },
-                            operationStatus: OperationStatus.CALL,
-                            notes: '',
                         },
                     });
-                    console.log(`Assigned TicketOperation for Ticket: ${ticket.qrCode} to Employee: ${employee.name}`);
-                } else {
-                    console.warn(`Нет доступных сотрудников для билета ${ticket.qrCode}`);
+
+                    if (ticketCount < minTickets) {
+                        selectedEmployee = employee;
+                        minTickets = ticketCount;
+                    }
                 }
+
+                // Назначение билета выбранному сотруднику
+                await tx.ticketOperation.upsert({
+                    where: { ticketId: ticket.id },
+                    update: {},
+                    create: {
+                        ticket: {
+                            connect: { id: ticket.id },
+                        },
+                        employee: {
+                            connect: { id: selectedEmployee.id },
+                        },
+                        operationStatus: OperationStatus.CALL,
+                        notes: '',
+                    },
+                });
+                console.log(`Assigned TicketOperation for Ticket: ${ticket.qrCode} to Employee: ${selectedEmployee.name}`);
+            }
+
+            // Дополнительное создание билетов, не назначенных сотрудникам, для заполнения очереди
+            const additionalTickets = 5; // Количество билетов для очереди
+
+            for (let i = 0; i < additionalTickets; i++) {
+                const appointedTime = generateAppointedTime(startHour, startMinute, intervalMinutes, numberOfTickets + i);
+
+                const ticketData = {
+                    appointedTime: appointedTime,
+                    departmentId: departmentId,
+                    userId: allUsers[i % allUsers.length].id, // Распределение пользователей циклически
+                    qrCode: `/qrcodes/qr-${uuidv4()}.png`, // Относительный путь
+                    operationId: allOperations[(i + numberOfTickets) % allOperations.length].id, // Распределение операций циклически
+                };
+
+                // Создание билета без назначения сотруднику (для заполнения очереди)
+                const ticket = await tx.ticket.upsert({
+                    where: { qrCode: ticketData.qrCode },
+                    update: {},
+                    create: {
+                        appointedTime: ticketData.appointedTime,
+                        department: {
+                            connect: { id: ticketData.departmentId },
+                        },
+                        user: {
+                            connect: { id: ticketData.userId },
+                        },
+                        qrCode: ticketData.qrCode,
+                        operation: {
+                            connect: { id: ticketData.operationId },
+                        },
+                    },
+                });
+                console.log(`Upserted Queue Ticket: ${ticket.qrCode} at ${ticket.appointedTime!.toISOString()}`);
+                // Эти билеты не назначаются сотрудникам, они попадут в очередь
             }
         });
 

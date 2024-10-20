@@ -1,87 +1,18 @@
 // queueService.ts
 import { PrismaClient, OperationStatus } from '@prisma/client';
-import { addMinutes, isToday, differenceInMinutes } from 'date-fns';
+import { differenceInMinutes } from 'date-fns';
 
 const prisma = new PrismaClient();
 
 /**
  * Получает список текущих активных талонов для каждого сотрудника в указанном отделении.
  * @param departmentId - ID отделения
- * @returns Объект, где ключ - ID сотрудника, а значение - массив активных билетов
+ * @returns Объект, где ключ - ID сотрудника, а значение - информация о талоне
  */
-export async function getActiveTickets(departmentId: string) {
+export async function getQueueForMonitor(departmentId: string) {
     const now = new Date();
 
-    // 1. Получаем список всех талонов для указанного отделения, созданных сегодня или с назначенным временем сегодня
-    const tickets = await prisma.ticket.findMany({
-        where: {
-            departmentId: departmentId,
-            AND: [
-                {
-                    OR: [
-                        {
-                            appointedTime: {
-                                equals: null,
-                            },
-                        },
-                        {
-                            appointedTime: {
-                                gte: new Date(now.setHours(0, 0, 0, 0)),
-                                lt: new Date(now.setHours(23, 59, 59, 999)),
-                            },
-                        },
-                        {
-                            createdAt: {
-                                gte: new Date(now.setHours(0, 0, 0, 0)),
-                                lt: new Date(now.setHours(23, 59, 59, 999)),
-                            },
-                        },
-                    ],
-                },
-            ],
-        },
-        include: {
-            operation: true,
-            ticketOperation: true,
-        },
-        orderBy: {
-            appointedTime: 'asc',
-        },
-    });
-
-    if (tickets.length === 0) {
-        return {};
-    }
-
-    // 2. Определяем самый ранний талон с appointedTime, если такой есть
-    const earliestAppointedTicket = tickets
-        .filter(ticket => ticket.appointedTime)
-        .sort((a, b) => a.appointedTime!.getTime() - b.appointedTime!.getTime())[0];
-
-    // 3. Сортируем список талонов по дате создания
-    tickets.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-
-    // 4. Приоритизация талонов с назначенным временем
-    if (earliestAppointedTicket) {
-        const deltaMinutes = differenceInMinutes(earliestAppointedTicket.appointedTime!, now);
-        if (deltaMinutes < 2) {
-            // Перемещаем талон на первую позицию
-            const index = tickets.findIndex(ticket => ticket.id === earliestAppointedTicket.id);
-            if (index > 0) {
-                tickets.splice(index, 1);
-                tickets.unshift(earliestAppointedTicket);
-            }
-        } else if (deltaMinutes < 0) {
-            // Назначенное время уже прошло, перемещаем талон на первую позицию
-            const index = tickets.findIndex(ticket => ticket.id === earliestAppointedTicket.id);
-            if (index > 0) {
-                tickets.splice(index, 1);
-                tickets.unshift(earliestAppointedTicket);
-            }
-        }
-    }
-
-    // 5. Получаем список сотрудников, которые находятся на дежурстве в указанном отделении
+    // 1. Получаем всех сотрудников на дежурстве в указанном отделении
     const employees = await prisma.employee.findMany({
         where: {
             departmentId: departmentId,
@@ -100,63 +31,115 @@ export async function getActiveTickets(departmentId: string) {
         return {};
     }
 
-    // Создаем карту сотрудников для удобства
-    const employeeMap: { [key: string]: any } = {};
+    // 2. Создаём карту сотрудников для удобства
+    const employeeMap: { [key: string]: { name: string, currentTicket: string | null, queue: string[] } } = {};
     employees.forEach(employee => {
         employeeMap[employee.id] = {
-            employee,
-            activeTickets: [],
+            name: employee.name,
+            currentTicket: null,
+            queue: [],
         };
     });
 
-    // Получаем активные талоны (статус CALL) для каждого сотрудника
+    // 3. Получаем все билеты, назначенные на этих сотрудников, которые не завершены и соответствуют условиям
     const activeTicketOperations = await prisma.ticketOperation.findMany({
         where: {
             employeeId: { in: employees.map(emp => emp.id) },
-            operationStatus: OperationStatus.CALL,
+            operationStatus: {
+                in: [OperationStatus.CALL, OperationStatus.COMPLETE, OperationStatus.CANCEL],
+            },
+            ticket: {
+                departmentId: departmentId,
+                OR: [
+                    { appointedTime: { equals: null } },
+                    {
+                        appointedTime: {
+                            gte: new Date(now.setHours(0, 0, 0, 0)),
+                            lt: new Date(now.setHours(23, 59, 59, 999)),
+                        },
+                    },
+                    {
+                        createdAt: {
+                            gte: new Date(now.setHours(0, 0, 0, 0)),
+                            lt: new Date(now.setHours(23, 59, 59, 999)),
+                        },
+                    }
+                ],
+            },
+        },
+        include: {
+            ticket: true,
         },
     });
 
-    // Помечаем сотрудников, которые уже обрабатывают талоны
-    activeTicketOperations.forEach(ticketOp => {
-        if (employeeMap[ticketOp.employeeId]) {
-            employeeMap[ticketOp.employeeId].activeTickets.push(ticketOp.ticketId);
+    // 4. Получаем все активные билеты (не завершенные) для распределения
+    const tickets = await prisma.ticket.findMany({
+        where: {
+            departmentId: departmentId,
+            OR: [
+                { appointedTime: { equals: null } },
+                {
+                    appointedTime: {
+                        gte: new Date(now.setHours(0, 0, 0, 0)),
+                        lt: new Date(now.setHours(23, 59, 59, 999)),
+                    },
+                },
+                {
+                    createdAt: {
+                        gte: new Date(now.setHours(0, 0, 0, 0)),
+                        lt: new Date(now.setHours(23, 59, 59, 999)),
+                    },
+                }
+            ],
+            NOT: {
+                ticketOperation: {
+                    is: {
+                        operationStatus: {
+                            in: [OperationStatus.COMPLETE, OperationStatus.CANCEL],
+                        },
+                    },
+                },
+            },
+        },
+        include: {
+            ticketOperation: true,
+        },
+        orderBy: [
+            { appointedTime: 'asc' },
+            { createdAt: 'asc' },
+        ],
+    });
+
+    // 5. Назначение билетов операторам
+    for (const ticket of tickets) {
+        const operationId = ticket.operationId;
+
+        // Ищем сотрудников, которые могут обработать эту операцию и не заняты текущим вызовом
+        const suitableEmployees = employees.filter(employee =>
+            employee.allowedOperationGroups.some(group =>
+                group.operations.some(op => op.id === operationId)
+            )
+        );
+
+        if (suitableEmployees.length === 0) {
+            // Нет доступных сотрудников для этой операции
+            continue;
         }
-    });
 
-    // Фильтруем талоны, которые могут быть обработаны текущими сотрудниками
-    const availableOperations = new Set<string>();
-    employees.forEach(employee => {
-        employee.allowedOperationGroups.forEach(group => {
-            group.operations.forEach(op => {
-                availableOperations.add(op.id);
-            });
-        });
-    });
+        // Назначаем билет первому доступному сотруднику
+        const employee = suitableEmployees[0];
+        const empData = employeeMap[employee.id];
 
-    const filteredTickets = tickets.filter(ticket => availableOperations.has(ticket.operationId));
-
-    // Назначение талонов сотрудникам
-    for (const ticket of filteredTickets) {
-        // Ищем сотрудника, который может обработать данный талон и не занят
-        const suitableEmployee = employees.find(employee => {
-            const canHandle = employee.allowedOperationGroups.some(group =>
-                group.operations.some(op => op.id === ticket.operationId)
-            );
-            const isAvailable = employeeMap[employee.id].activeTickets.length === 0;
-            return canHandle && isAvailable;
-        });
-
-        if (suitableEmployee) {
-            employeeMap[suitableEmployee.id].activeTickets.push(ticket.id);
+        if (ticket.ticketOperation && ticket.ticketOperation.operationStatus === OperationStatus.CALL) {
+            // Если билет уже вызывается этим сотрудником
+            if (empData.currentTicket === null) {
+                empData.currentTicket = ticket.id;
+            }
+        } else {
+            // Если билет еще не назначен, назначаем его в очередь
+            empData.queue.push(ticket.id);
         }
     }
 
-    // Формируем результат
-    const result: { [key: string]: string[] } = {};
-    for (const [employeeId, data] of Object.entries(employeeMap)) {
-        result[employeeId] = data.activeTickets;
-    }
-
-    return result;
+    return employeeMap;
 }
