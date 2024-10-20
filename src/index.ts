@@ -863,6 +863,7 @@ app.get('/tickets/:id', async (req: Request, res: Response) => {
             id: ticket.id,
             appointedTime: ticket.appointedTime,
             qrCode: ticket.qrCode,
+            createdAt: ticket.createdAt, // Добавлено поле createdAt
             department: ticket.department ? {
                 id: ticket.department.id,
                 address: ticket.department.address,
