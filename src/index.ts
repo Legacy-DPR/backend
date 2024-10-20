@@ -1,21 +1,30 @@
 // index.ts
-import { PrismaClient } from '@prisma/client';
-import express from 'express';
+import { PrismaClient, OperationStatus } from '@prisma/client';
+import express, { Request, Response } from 'express';
 import { checkIfServiceAuthorized } from "@/middleware";
 import { getActiveTickets } from './queueService'; // Импортируем функцию из queueService
+import path from 'path';
+import QRCode from 'qrcode';
+import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
 const prisma = new PrismaClient();
 
+// Middleware для парсинга JSON
 app.use(express.json());
+
+// Middleware для авторизации сервиса
 app.use(checkIfServiceAuthorized);
+
+// Разрешаем доступ к статическим файлам в папке public/qrcodes
+app.use('/qrcodes', express.static(path.join(__dirname, 'public/qrcodes')));
 
 /**
  * 1. Эндпоинт для создания нового пользователя по telegramId
  *    POST /users
  *    Тело запроса: { "telegramId": "telegram_12345" }
  */
-app.post('/users', async (req, res) => {
+app.post('/users', async (req: Request, res: Response) => {
     const { telegramId } = req.body;
 
     if (!telegramId) {
@@ -51,7 +60,7 @@ app.post('/users', async (req, res) => {
  *    GET /users/:telegramId
  *    Ответ: { "telegramId": "telegram_12345" }
  */
-app.get('/users/:telegramId', async (req, res) => {
+app.get('/users/:telegramId', async (req: Request, res: Response) => {
     const { telegramId } = req.params;
 
     try {
@@ -75,7 +84,7 @@ app.get('/users/:telegramId', async (req, res) => {
  * GET /departments
  * Ответ: Массив объектов отделений
  */
-app.get('/departments', async (req, res) => {
+app.get('/departments', async (req: Request, res: Response) => {
   try {
     const departments = await prisma.department.findMany({
       include: {
@@ -95,7 +104,7 @@ app.get('/departments', async (req, res) => {
  *    GET /departments/:departmentId/operation-groups
  *    Ответ: Массив групп операций с их операциями
  */
-app.get('/departments/:departmentId/operation-groups', async (req, res) => {
+app.get('/departments/:departmentId/operation-groups', async (req: Request, res: Response) => {
   const { departmentId } = req.params;
 
   try {
@@ -139,7 +148,7 @@ app.get('/departments/:departmentId/operation-groups', async (req, res) => {
  *    GET /employees/:telegramId
  *    Ответ: { "telegramId": "telegram_12345", "name": "Иван Иванов" }
  */
-app.get('/employees/:telegramId', async (req, res) => {
+app.get('/employees/:telegramId', async (req: Request, res: Response) => {
   const { telegramId } = req.params;
 
   try {
@@ -167,8 +176,12 @@ app.get('/employees/:telegramId', async (req, res) => {
 });
 
 /**
- * Новый Эндпоинт для изменения значения onDuty на противоположное
- * PATCH /employees/:telegramId/toggle-duty
+ * Новый Эндпоинт для изменения значения onDuty
+ * PATCH /employees/:telegramId/set-duty
+ * Тело запроса:
+ * {
+ *   "onDuty": true
+ * }
  * Ответ:
  * {
  *   "telegramId": "telegram_12345",
@@ -177,8 +190,13 @@ app.get('/employees/:telegramId', async (req, res) => {
  *   "admin": false
  * }
  */
-app.patch('/employees/:telegramId/toggle-duty', async (req, res) => {
+app.patch('/employees/:telegramId/set-duty', async (req: Request, res: Response) => {
     const { telegramId } = req.params;
+    const { onDuty } = req.body;
+
+    if (typeof onDuty !== 'boolean') {
+        return res.status(400).json({ error: 'Поле onDuty должно быть булевым значением' });
+    }
 
     try {
         // Находим сотрудника по telegramId
@@ -190,11 +208,11 @@ app.patch('/employees/:telegramId/toggle-duty', async (req, res) => {
             return res.status(404).json({ error: 'Работник с таким telegramId не найден' });
         }
 
-        // Переключаем значение onDuty
+        // Обновляем значение onDuty
         const updatedEmployee = await prisma.employee.update({
             where: { telegramId },
             data: {
-                onDuty: !employee.onDuty,
+                onDuty: onDuty,
             },
         });
 
@@ -205,7 +223,7 @@ app.patch('/employees/:telegramId/toggle-duty', async (req, res) => {
             admin: updatedEmployee.admin,
         });
     } catch (error) {
-        console.error('Ошибка при переключении onDuty:', error);
+        console.error('Ошибка при обновлении onDuty:', error);
         res.status(500).json({ error: 'Внутренняя ошибка сервера' });
     }
 });
@@ -216,15 +234,16 @@ app.patch('/employees/:telegramId/toggle-duty', async (req, res) => {
  * Тело запроса:
  * {
  *   "telegramId": "telegram_12345",
+ *   "departmentId": "dep1",
  *   "appointedTime": "2024-05-01T10:00:00Z", 
  *   "operationId": "op1"
  * }
  */
-app.post('/tickets', async (req, res) => {
-    const { telegramId, appointedTime, operationId } = req.body;
+app.post('/tickets', async (req: Request, res: Response) => {
+    const { telegramId, departmentId, appointedTime, operationId } = req.body;
 
-    if (!operationId) {
-        return res.status(400).json({ error: 'operationId обязателен' });
+    if (!operationId || !departmentId) {
+        return res.status(400).json({ error: 'operationId и departmentId обязательны' });
     }
 
     try {
@@ -236,7 +255,25 @@ app.post('/tickets', async (req, res) => {
             return res.status(404).json({ error: 'operationId не существует' });
         }
 
-        let userId = null;
+        // Проверяем, доступно ли это отделение для данной операции
+        const department = await prisma.department.findUnique({
+            where: { id: departmentId },
+            include: {
+                availableOperationGroups: true,
+            },
+        });
+
+        if (!department) {
+            return res.status(404).json({ error: 'Отделение с таким departmentId не найдено' });
+        }
+
+        const isOperationAvailable = department.availableOperationGroups.some(group => group.id === operation.operationGroupId);
+
+        if (!isOperationAvailable) {
+            return res.status(400).json({ error: 'Данная операция недоступна в указанном отделении' });
+        }
+
+        let userId: string | null = null;
 
         if (telegramId) {
             const user = await prisma.user.findUnique({
@@ -250,31 +287,7 @@ app.post('/tickets', async (req, res) => {
             userId = user.id;
         }
 
-        // ЗАГЛУШКА
-        const qrCode = `QR-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-
-        let departmentId = null;
-        if (operation.operationGroupId) {
-            const operationGroup = await prisma.operationGroup.findUnique({
-                where: { id: operation.operationGroupId },
-                include: { departments: true },
-            });
-
-            if (operationGroup && operationGroup.departments.length > 0) {
-                departmentId = operationGroup.departments[0].id;
-            } else {
-                return res.status(400).json({ error: 'Не удалось определить отдел для данной операции' });
-            }
-        } else {
-            // Если операция не связана с группой, выбираем отделение по умолчанию
-            const defaultDepartment = await prisma.department.findFirst();
-            if (defaultDepartment) {
-                departmentId = defaultDepartment.id;
-            } else {
-                return res.status(400).json({ error: 'Нет доступных отделений для создания билета' });
-            }
-        }
-
+        // Создаём билет без QR-кода для получения ID
         const ticket = await prisma.ticket.create({
             data: {
                 appointedTime: appointedTime ? new Date(appointedTime) : null,
@@ -282,17 +295,47 @@ app.post('/tickets', async (req, res) => {
                     connect: { id: departmentId },
                 },
                 user: userId ? { connect: { id: userId } } : undefined,
-                qrCode, // Используем сгенерированную строку
                 operation: {
                     connect: { id: operationId },
                 },
+                // Убедитесь, что qrCode допускает null, иначе установите временное значение
+                qrCode: null,
             },
         });
 
+        // Генерируем URL для QR-кода, например, с использованием ID билета
+        const ticketUrl = `https://t.me/PochtaDonClientBot/ticket/${ticket.id}`;
+
+        // Генерируем уникальное имя файла для QR-кода
+        const qrCodeFileName = `qr-${uuidv4()}.png`;
+        const qrCodePath = path.join(__dirname, 'public', 'qrcodes', qrCodeFileName);
+        const qrCodeUrl = `/qrcodes/${qrCodeFileName}`; // Относительный путь
+
+        // Генерируем QR-код и сохраняем его как изображение
+        await QRCode.toFile(qrCodePath, ticketUrl, {
+            color: {
+                dark: '#000000',  // Чёрный цвет QR-кода
+                light: '#FFFFFF'  // Белый фон
+            },
+            width: 300, // Ширина изображения в пикселях
+        });
+
+        // Обновляем билет с URL QR-кода
+        const updatedTicket = await prisma.ticket.update({
+            where: { id: ticket.id },
+            data: { qrCode: qrCodeUrl },
+        });
+
+        // Поиск сотрудника, находящегося на дежурстве в выбранном отделе и разрешающего данную группу операций
         const employee = await prisma.employee.findFirst({
             where: {
                 departmentId: departmentId,
                 onDuty: true,
+                allowedOperationGroups: {
+                    some: {
+                        id: operation.operationGroupId,
+                    },
+                },
             },
         });
 
@@ -305,20 +348,27 @@ app.post('/tickets', async (req, res) => {
                     employee: {
                         connect: { id: employee.id },
                     },
-                    operationStatus: 'CALL', 
-                    notes: '', 
+                    operationStatus: OperationStatus.CALL,
+                    notes: '',
                 },
             });
+            console.log(`Assigned TicketOperation for Ticket: ${ticket.qrCode} to Employee: ${employee.name}`);
         } else {
             console.warn(`Нет доступных сотрудников для отдела ${departmentId}`);
         }
 
-        res.status(201).json(ticket);
+        // Получаем обновлённый билет с QR-кодом
+        const finalTicket = await prisma.ticket.findUnique({
+            where: { id: ticket.id },
+        });
+
+        res.status(201).json(finalTicket);
     } catch (error) {
         console.error('Ошибка при создании билета:', error);
         res.status(500).json({ error: 'Внутренняя ошибка сервера' });
     }
 });
+
 
 /**
  * Новый Эндпоинт для создания нового работника
@@ -333,7 +383,7 @@ app.post('/tickets', async (req, res) => {
  *   "allowedOperationGroups": ["group1", "group3"]
  * }
  */
-app.post('/employees', async (req, res) => {
+app.post('/employees', async (req: Request, res: Response) => {
     const { telegramId, name, onDuty, admin, departmentId, allowedOperationGroups } = req.body;
 
     if (!telegramId || !name || !departmentId || !Array.isArray(allowedOperationGroups)) {
@@ -390,11 +440,64 @@ app.post('/employees', async (req, res) => {
 });
 
 /**
+ * Новый Эндпоинт для смены флага admin у работника
+ * PATCH /employees/:telegramId/set-admin
+ * Тело запроса:
+ * {
+ *   "admin": true // Новое значение
+ * }
+ * Ответ:
+ * {
+ *   "telegramId": "telegram_12345",
+ *   "name": "Иван Иванов",
+ *   "onDuty": true,
+ *   "admin": true // Новое значение
+ * }
+ */
+app.patch('/employees/:telegramId/set-admin', async (req: Request, res: Response) => {
+    const { telegramId } = req.params;
+    const { admin } = req.body;
+
+    if (typeof admin !== 'boolean') {
+        return res.status(400).json({ error: 'Поле admin должно быть булевым значением' });
+    }
+
+    try {
+        // Находим сотрудника по telegramId
+        const employee = await prisma.employee.findUnique({
+            where: { telegramId },
+        });
+
+        if (!employee) {
+            return res.status(404).json({ error: 'Работник с таким telegramId не найден' });
+        }
+
+        // Обновляем значение admin
+        const updatedEmployee = await prisma.employee.update({
+            where: { telegramId },
+            data: {
+                admin: admin,
+            },
+        });
+
+        res.json({
+            telegramId: updatedEmployee.telegramId,
+            name: updatedEmployee.name,
+            onDuty: updatedEmployee.onDuty,
+            admin: updatedEmployee.admin,
+        });
+    } catch (error) {
+        console.error('Ошибка при обновлении admin:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
+/**
  * Новый Эндпоинт для получения списка текущих активных талонов для каждого сотрудника в отделении
  * GET /queue/active-tickets/:departmentId
  * Ответ: { "employeeId1": ["ticketId1", "ticketId2"], "employeeId2": ["ticketId3"], ... }
  */
-app.get('/queue/active-tickets/:departmentId', async (req, res) => {
+app.get('/queue/active-tickets/:departmentId', async (req: Request, res: Response) => {
     const { departmentId } = req.params;
 
     try {
@@ -407,7 +510,7 @@ app.get('/queue/active-tickets/:departmentId', async (req, res) => {
 });
 
 // Эндпоинт для получения списка операций по operationGroupId
-app.get('/operation-group/:operationGroupId/operations', async (req, res) => {
+app.get('/operation-group/:operationGroupId/operations', async (req: Request, res: Response) => {
   const { operationGroupId } = req.params;
 
   try {
