@@ -167,6 +167,50 @@ app.get('/employees/:telegramId', async (req, res) => {
 });
 
 /**
+ * Новый Эндпоинт для изменения значения onDuty на противоположное
+ * PATCH /employees/:telegramId/toggle-duty
+ * Ответ:
+ * {
+ *   "telegramId": "telegram_12345",
+ *   "name": "Иван Иванов",
+ *   "onDuty": true, // Новое значение
+ *   "admin": false
+ * }
+ */
+app.patch('/employees/:telegramId/toggle-duty', async (req, res) => {
+    const { telegramId } = req.params;
+
+    try {
+        // Находим сотрудника по telegramId
+        const employee = await prisma.employee.findUnique({
+            where: { telegramId },
+        });
+
+        if (!employee) {
+            return res.status(404).json({ error: 'Работник с таким telegramId не найден' });
+        }
+
+        // Переключаем значение onDuty
+        const updatedEmployee = await prisma.employee.update({
+            where: { telegramId },
+            data: {
+                onDuty: !employee.onDuty,
+            },
+        });
+
+        res.json({
+            telegramId: updatedEmployee.telegramId,
+            name: updatedEmployee.name,
+            onDuty: updatedEmployee.onDuty,
+            admin: updatedEmployee.admin,
+        });
+    } catch (error) {
+        console.error('Ошибка при переключении onDuty:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
+/**
  * ЭНДПОИНТ СОЗДАНИЯ БИЛЕТА!!!!
  * POST /tickets
  * Тело запроса:
