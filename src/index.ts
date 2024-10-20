@@ -531,6 +531,58 @@ app.get('/operation-group/:operationGroupId/operations', async (req: Request, re
   }
 });
 
+/**
+ * Эндпоинт для получения полной информации о билете по его id
+ * GET /tickets/:id
+ * Ответ:
+ * {
+ *   "id": "ticket-id",
+ *   "appointedTime": "2024-05-01T09:00:00.000Z",
+ *   "qrCode": "/qrcodes/qr-uuid.png",
+ *   "department": {
+ *     "id": "dep1",
+ *     "address": "123 Main St",
+ *     // другие поля отделения
+ *   },
+ *   "operation": {
+ *     "id": "op1",
+ *     "name": "Отправить письменную корреспонденцию",
+ *     "description": "Услуга по отправке письменной корреспонденции",
+ *     "operationGroupId": "group1",
+ *     // другие поля операции
+ *   },
+ *   "user": {
+ *     "id": "user-id",
+ *     "telegramId": "telegram_12345",
+ *     // другие поля пользователя
+ *   },
+ *   // другие связанные данные, если необходимо
+ * }
+ */
+app.get('/tickets/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    try {
+        const ticket = await prisma.ticket.findUnique({
+            where: { id },
+            include: {
+                department: true,    
+                operation: true,     
+                user: true,          
+            },
+        });
+
+        if (!ticket) {
+            return res.status(404).json({ error: 'Билет не найден' });
+        }
+
+        res.json(ticket);
+    } catch (error) {
+        console.error('Ошибка при получении билета:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Сервер запущен на порту ${PORT}`);
