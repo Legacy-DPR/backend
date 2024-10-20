@@ -19,6 +19,9 @@ services:
       DATABASE_URL: "postgresql://backend:backend_password@db:5432/postdonbass_db"
     command: >
       sh -c "npx prisma db push --accept-data-loss; npx prisma db seed; npm run start"
+    volumes:
+      - backend-files:/usr/src/app/dist/public/qrcodes
+      - backend-files:/public/qrcodes
   db:
     image: postgres:17
     container_name: database
@@ -38,3 +41,4 @@ services:
       - db-data:/var/lib/postgresql/data
 volumes:
   db-data:
+  backend-files:
