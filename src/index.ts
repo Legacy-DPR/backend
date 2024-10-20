@@ -797,8 +797,12 @@ app.get('/operation-group/:operationGroupId/operations', async (req: Request, re
 
 /**
  * Эндпоинт для получения полной информации о билете по его id
- * GET /tickets/:id
- * Ответ:
+ * 
+ * **Маршрут:**
+ * `GET /tickets/:id`
+ * 
+ * **Ответ:**
+ * ```json
  * {
  *   "id": "ticket-id",
  *   "appointedTime": "2024-05-01T09:00:00.000Z",
@@ -806,22 +810,19 @@ app.get('/operation-group/:operationGroupId/operations', async (req: Request, re
  *   "department": {
  *     "id": "dep1",
  *     "address": "123 Main St",
- *     // другие поля отделения
+ *     "createdAt": "2023-10-20T12:34:56.789Z"
  *   },
  *   "operation": {
  *     "id": "op1",
  *     "name": "Отправить письменную корреспонденцию",
  *     "description": "Услуга по отправке письменной корреспонденции",
- *     "operationGroupId": "group1",
- *     // другие поля операции
+ *     "operationGroupId": "group1"
  *   },
  *   "user": {
  *     "id": "user-id",
- *     "telegramId": "telegram_12345",
- *     // другие поля пользователя
+ *     "telegramId": "telegram_12345"
  *   },
- *   // другие связанные данные, если необходимо
- * }
+ * ```
  */
 app.get('/tickets/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
@@ -830,9 +831,27 @@ app.get('/tickets/:id', async (req: Request, res: Response) => {
         const ticket = await prisma.ticket.findUnique({
             where: { id },
             include: {
-                department: true,    
-                operation: true,     
-                user: true,          
+                department: {
+                    select: {
+                        id: true,
+                        address: true,
+                        createdAt: true,
+                    },
+                },
+                operation: {
+                    select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        operationGroupId: true,
+                    },
+                },
+                user: {
+                    select: {
+                        id: true,
+                        telegramId: true,
+                    },
+                },
             },
         });
 
@@ -840,7 +859,28 @@ app.get('/tickets/:id', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Билет не найден' });
         }
 
-        res.json(ticket);
+        const formattedTicket = {
+            id: ticket.id,
+            appointedTime: ticket.appointedTime,
+            qrCode: ticket.qrCode,
+            department: ticket.department ? {
+                id: ticket.department.id,
+                address: ticket.department.address,
+                createdAt: ticket.department.createdAt,
+            } : null,
+            operation: ticket.operation ? {
+                id: ticket.operation.id,
+                name: ticket.operation.name,
+                description: ticket.operation.description,
+                operationGroupId: ticket.operation.operationGroupId,
+            } : null,
+            user: ticket.user ? {
+                id: ticket.user.id,
+                telegramId: ticket.user.telegramId,
+            } : null,
+        };
+
+        res.json(formattedTicket);
     } catch (error) {
         console.error('Ошибка при получении билета:', error);
         res.status(500).json({ error: 'Внутренняя ошибка сервера' });
@@ -876,6 +916,184 @@ app.get('/queue/monitor/:departmentId', async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Внутренняя ошибка сервера' });
     }
 });
+
+/**
+ * Эндпоинт для получения списка работников текущего департамента и их статистики
+ * GET /departments/:departmentId/employees
+ * Ответ:
+ * {
+ *   "employeeId1": {
+ *     "name": "Иван Иванов",
+ *     "currentTicket": "ticketId1",
+ *     "queue": ["ticketId2", "ticketId3"]
+ *   },
+ *   ...
+ * }
+ */
+app.get('/departments/:departmentId/employees', async (req: Request, res: Response) => {
+    const { departmentId } = req.params;
+
+    try {
+        // Получаем всех сотрудников в указанном департаменте
+        const employees = await prisma.employee.findMany({
+            where: {
+                departmentId: departmentId,
+            },
+            include: {
+                allowedOperationGroups: {
+                    include: {
+                        operations: true,
+                    },
+                },
+            },
+        });
+
+        if (employees.length === 0) {
+            return res.status(404).json({ error: 'Отделение не имеет сотрудников' });
+        }
+
+        // Инициализируем результат
+        const result: { [key: string]: { name: string, currentTicket: string | null, queue: string[] } } = {};
+
+        for (const employee of employees) {
+            // Получаем все TicketOperations с статусом CALL для сотрудника
+            const ticketOps = await prisma.ticketOperation.findMany({
+                where: {
+                    employeeId: employee.id,
+                    operationStatus: OperationStatus.CALL,
+                    ticket: {
+                        departmentId: departmentId,
+                        OR: [
+                            { appointedTime: null },
+                            {
+                                appointedTime: {
+                                    gte: new Date(new Date().setHours(0, 0, 0, 0)),
+                                    lt: new Date(new Date().setHours(23, 59, 59, 999)),
+                                },
+                            },
+                            {
+                                createdAt: {
+                                    gte: new Date(new Date().setHours(0, 0, 0, 0)),
+                                    lt: new Date(new Date().setHours(23, 59, 59, 999)),
+                                },
+                            },
+                        ],
+                    },
+                },
+                include: {
+                    ticket: true,
+                },
+                orderBy: [
+                    { ticket: { appointedTime: 'asc' } },
+                    { ticket: { createdAt: 'asc' } },
+                ],
+            });
+
+            if (ticketOps.length === 0) {
+                result[employee.id] = {
+                    name: employee.name,
+                    currentTicket: null,
+                    queue: [],
+                };
+                continue;
+            }
+
+            // Назначаем первый билет как currentTicket, остальные как очередь
+            const currentTicket = ticketOps[0].ticketId;
+            const queue = ticketOps.slice(1).map(op => op.ticketId);
+
+            result[employee.id] = {
+                name: employee.name,
+                currentTicket: currentTicket,
+                queue: queue,
+            };
+        }
+
+        res.json(result);
+    } catch (error) {
+        console.error('Ошибка при получении списка работников:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
+/**
+ * Эндпоинт для изменения списка операций конкретного работника
+ * PATCH /employees/:employeeId/operations
+ * Тело запроса:
+ * {
+ *   "allowedOperationGroups": ["group1", "group3"]
+ * }
+ * Ответ:
+ * {
+ *   "id": "employeeId",
+ *   "name": "Иван Иванов",
+ *   "allowedOperationGroups": [
+ *     { "id": "group1", "name": "Почтовые отправления", "description": "Группа услуг по почтовым отправлениям" },
+ *     { "id": "group3", "name": "Платежи", "description": "Группа услуг по платежам" }
+ *   ],
+ *   "onDuty": true,
+ *   "admin": false
+ * }
+ */
+app.patch('/employees/:employeeId/operations', async (req: Request, res: Response) => {
+    const { employeeId } = req.params;
+    const { allowedOperationGroups } = req.body;
+
+    if (!Array.isArray(allowedOperationGroups)) {
+        return res.status(400).json({ error: 'allowedOperationGroups должно быть массивом' });
+    }
+
+    try {
+        // Проверяем существование сотрудника
+        const employee = await prisma.employee.findUnique({
+            where: { id: employeeId },
+            include: { allowedOperationGroups: true },
+        });
+
+        if (!employee) {
+            return res.status(404).json({ error: 'Работник не найден' });
+        }
+
+        // Проверяем существование всех предоставленных OperationGroup
+        const existingGroups = await prisma.operationGroup.findMany({
+            where: { id: { in: allowedOperationGroups } },
+        });
+
+        if (existingGroups.length !== allowedOperationGroups.length) {
+            return res.status(400).json({ error: 'Некоторые из allowedOperationGroups не существуют' });
+        }
+
+        // Обновляем список allowedOperationGroups сотрудника
+        const updatedEmployee = await prisma.employee.update({
+            where: { id: employeeId },
+            data: {
+                allowedOperationGroups: {
+                    set: [], // Сброс текущих связей
+                    connect: allowedOperationGroups.map((id: string) => ({ id })),
+                },
+            },
+            include: {
+                allowedOperationGroups: true,
+            },
+        });
+
+        res.json({
+            id: updatedEmployee.id,
+            name: updatedEmployee.name,
+            allowedOperationGroups: updatedEmployee.allowedOperationGroups.map(group => ({
+                id: group.id,
+                name: group.name,
+                description: group.description,
+            })),
+            onDuty: updatedEmployee.onDuty,
+            admin: updatedEmployee.admin,
+        });
+    } catch (error) {
+        console.error('Ошибка при обновлении операций работника:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
